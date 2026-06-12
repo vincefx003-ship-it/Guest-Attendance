@@ -1,80 +1,90 @@
-const SHEET_GUESTS = "Guests";
-const SHEET_ATTENDANCE = "Attendance";
-const SHEET_EVENTS = "Events";
-const SHEET_AUDIT = "AuditLog";
+const SHEET_NAME = "Guests";
 
-// ===================== ENTRY POINT =====================
+// SEARCH GUEST
 function doGet(e) {
-  const action = e.parameter.action || "health";
+  const action = e.parameter.action;
 
-  if (action === "health") {
-    return json({
-      success: true,
-      message: "Guest Attendance API is running"
-    });
-  }
+  if (action === "search") return searchGuest(e);
 
-  if (action === "search") {
-    return searchGuest(e);
-  }
-
-  return json({
-    success: false,
-    error: "Invalid action"
-  });
+  return json({ message: "Invalid GET request" });
 }
 
-// ===================== SEARCH GUEST =====================
+// MAIN SEARCH LOGIC
 function searchGuest(e) {
-  const q = (e.parameter.q || "").toLowerCase().trim();
-
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(SHEET_GUESTS);
-
+  const q = (e.parameter.q || "").toLowerCase();
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
   const data = sheet.getDataRange().getValues();
-  const headers = data[0];
 
-  let results = [];
+  let found = null;
 
   for (let i = 1; i < data.length; i++) {
     const row = data[i];
 
-    const guest = {
-      guestId: row[0],
-      name: row[1],
-      phone: row[2],
-      rsvp: row[3]
-    };
-
     if (
-      guest.guestId.toLowerCase().includes(q) ||
-      guest.name.toLowerCase().includes(q) ||
-      guest.phone.toLowerCase().includes(q)
+      row[1].toLowerCase() === q ||  // name exact
+      row[0].toLowerCase() === q ||  // id
+      row[2].toLowerCase() === q     // phone
     ) {
-      results.push(guest);
+      found = {
+        rowIndex: i + 1,
+        guestId: row[0],
+        name: row[1],
+        phone: row[2],
+        status: row[3]
+      };
+      break;
     }
   }
 
-  logAction("SEARCH", q);
-
-  return json({ success: true, results });
+  return json({ found });
 }
 
-// ===================== UTIL: JSON RESPONSE =====================
+// CHECK IN GUEST
+function doPost(e) {
+  const action = e.parameter.action;
+
+  if (action === "checkin") return checkIn(e);
+  if (action === "register") return registerGuest(e);
+
+  return json({ message: "Invalid POST" });
+}
+
+// MARK PRESENT
+function checkIn(e) {
+  const id = e.parameter.id;
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  const data = sheet.getDataRange().getValues();
+
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === id) {
+      sheet.getRange(i + 1, 4).setValue("present");
+      return json({ success: true, message: "Checked in successfully" });
+    }
+  }
+
+  return json({ success: false, message: "Guest not found" });
+}
+
+// REGISTER NEW GUEST + MARK PRESENT
+function registerGuest(e) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+
+  const guestId = "G" + Date.now();
+  const name = e.parameter.name;
+  const phone = e.parameter.phone;
+
+  sheet.appendRow([guestId, name, phone, "present"]);
+
+  return json({
+    success: true,
+    message: "Registered and checked in",
+    guestId
+  });
+}
+
+// JSON HELPER
 function json(obj) {
   return ContentService
     .createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
-}
-
-// ===================== AUDIT LOG =====================
-function logAction(action, details) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(SHEET_AUDIT);
-
-  sheet.appendRow([
-    new Date(),
-    action,
-    details
-  ]);
 }
